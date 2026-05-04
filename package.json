@@ -1,0 +1,6 @@
+{
+  "name": "interviewwithsarah",
+  "version": "1.0.0",
+  "description": "AI Mock Interview Simulator for QA Engineers",
+  "engines": { "node": "20.x" }
+}
