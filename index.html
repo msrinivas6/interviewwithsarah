@@ -1625,78 +1625,64 @@ function getFeedback(q,ans,cb){
   var question = (q && q.question) ? q.question : 'General QA question';
   var category = (q && q.category) ? q.category : 'General';
 
-  var p = [
-    'Evaluate this QA interview answer strictly and return ONLY a JSON object.',
-    '',
-    'Question: ' + question,
-    'Category: ' + category,
-    'Experience Level: ' + S.level,
-    (S.company ? 'Company: ' + S.company : ''),
-    '',
-    'Candidate Answer: ' + ans,
-    '',
-    'Evaluate honestly based on:',
-    '- Technical accuracy',
-    '- Depth and specificity',
-    '- Use of real examples',
-    '- Completeness of the answer',
-    '',
-    'Return ONLY this exact JSON structure:',
-    '{"score": 7, "strong": "what they got right referencing their actual words", "missing": "what was missing or incorrect", "ideal": "ideal answer in 2-3 sentences"}',
-    '',
-    'The score MUST reflect the actual quality. A vague or incomplete answer should score 3-5. A detailed answer with examples should score 7-9.'
-  ].join('\n');
-
-  console.log('getFeedback prompt preview:', p.substring(0, 200));
+  // Single clean string — no array join, no template issues
+  var p = 'IMPORTANT: Respond with JSON only. No other text.\n\n' +
+    'You are evaluating a QA interview answer. Return a JSON object with exactly these fields: score, strong, missing, ideal.\n\n' +
+    'Question: ' + question + '\n' +
+    'Category: ' + category + '\n' +
+    'Level: ' + S.level + '\n' +
+    'Answer given: ' + ans + '\n\n' +
+    'Scoring guide:\n' +
+    '- 1-3: Answer is wrong, off-topic or shows no understanding\n' +
+    '- 4-5: Partial understanding but missing key details\n' +
+    '- 6-7: Good understanding, could use more examples\n' +
+    '- 8-10: Excellent, specific, with real examples\n\n' +
+    'JSON format (return ONLY this, no markdown):\n' +
+    '{"score":6,"strong":"What they said correctly","missing":"What was missing","ideal":"The ideal answer in 2 sentences"}';
 
   fetch('/api/interview', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       prompt: p,
-      max_tokens: 600,
-      json_mode: true,
-      system: 'You are a strict QA interview evaluator. Respond with a valid JSON object only. No markdown, no extra text.'
+      max_tokens: 400,
+      system: 'You are a QA interview evaluator. You MUST respond with a valid JSON object only. No markdown code blocks, no extra text, just the raw JSON.'
     })
   })
-  .then(function(r){
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  })
+  .then(function(r){ return r.json(); })
   .then(function(d){
-    var txt = d.text || '';
-    console.log('getFeedback response:', txt);
-    var clean = txt.replace(/```json/gi,'').replace(/```/gi,'').trim();
+    var txt = (d.text || '').trim();
+
+    // Show raw response briefly for debugging (remove after confirmed working)
+    var dbg = document.getElementById('feedback-debug');
+    if(!dbg){
+      dbg = document.createElement('div');
+      dbg.id = 'feedback-debug';
+      dbg.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;color:#0f0;font-size:10px;padding:6px;z-index:9999;max-height:100px;overflow:auto;word-break:break-all;';
+      document.body.appendChild(dbg);
+    }
+    dbg.textContent = 'RAW: ' + txt.substring(0,300);
+    setTimeout(function(){ if(dbg) dbg.remove(); }, 8000);
+
+    // Try to parse — strip any markdown if present
+    var clean = txt.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/```\s*$/,'').trim();
     var si = clean.indexOf('{');
     var ei = clean.lastIndexOf('}');
     if(si !== -1 && ei !== -1){
-      try {
+      try{
         var parsed = JSON.parse(clean.substring(si, ei+1));
         if(typeof parsed.score === 'number' && parsed.strong && parsed.missing){
-          console.log('Parsed score:', parsed.score);
-          cb(parsed);
-          return;
+          cb(parsed); return;
         }
-        console.warn('Fields missing in:', parsed);
       } catch(ex){
-        console.warn('JSON.parse failed:', ex.message, 'on:', clean.substring(0,200));
+        dbg && (dbg.textContent = 'PARSE ERR: ' + ex.message + ' | ' + clean.substring(0,150));
       }
     }
-    cb({
-      score: 5,
-      strong: 'Your answer touched on the key concept.',
-      missing: 'Add more specifics — concrete steps, tools used, and a real example from your work.',
-      ideal: 'An ideal answer names the specific process, tools involved, and gives a real scenario from experience.'
-    });
+    // Absolute last resort fallback
+    cb({score:5, strong:'Answer received but could not parse AI feedback.', missing:'Please try again.', ideal:''});
   })
   .catch(function(err){
-    console.error('getFeedback fetch error:', err.message);
-    cb({
-      score: 5,
-      strong: 'Your answer touched on the key concept.',
-      missing: 'Add more specifics — concrete steps, tools used, and a real example from your work.',
-      ideal: 'An ideal answer names the specific process, tools involved, and gives a real scenario from experience.'
-    });
+    cb({score:5, strong:'Network error getting feedback.', missing:err.message, ideal:''});
   });
 }
 
