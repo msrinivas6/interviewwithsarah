@@ -10,26 +10,21 @@ export default async function handler(req, res) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'API not configured' });
 
-  const { prompt, max_tokens, system, json_mode } = req.body || {};
+  const { prompt, max_tokens, system } = req.body || {};
   if (!prompt) return res.status(400).json({ error: 'No prompt provided' });
 
-  // Use custom system prompt if provided, otherwise default
   const systemPrompt = system || 'You are Sarah, an expert QA interviewer. Always respond with valid JSON only.';
 
   try {
-    const body = {
+    const groqBody = {
       model: 'llama-3.3-70b-versatile',
       max_tokens: max_tokens || 1000,
+      temperature: 0.3,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ]
     };
-
-    // Enable JSON mode when requested (forces clean JSON output)
-    if (json_mode) {
-      body.response_format = { type: 'json_object' };
-    }
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -37,17 +32,27 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(groqBody)
     });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data.error?.message || 'AI error' });
 
-    const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    // Log full response for debugging
+    console.log('Groq status:', response.status);
+    console.log('Groq data keys:', Object.keys(data));
+
+    if (!response.ok) {
+      console.error('Groq error:', JSON.stringify(data));
+      return res.status(response.status).json({ error: data.error?.message || 'AI error' });
+    }
+
+    const text = data?.choices?.[0]?.message?.content || '';
+    console.log('Response text length:', text.length, 'preview:', text.substring(0, 100));
+
     return res.status(200).json({ text });
 
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('Handler error:', err.message);
     return res.status(500).json({ error: err.message });
   }
 }
